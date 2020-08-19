@@ -38,7 +38,6 @@ use transact::protocol::batch::Batch;
 
 use crate::{
     consensus::notifier::ConsensusNotifier,
-    execution::execution_platform::ExecutionPlatform,
     journal::chain_head_lock::ChainHeadLock,
     journal::{
         block_manager::{BlockManager, BlockManagerError, BlockRef},
@@ -244,12 +243,12 @@ impl ChainControllerState {
     }
 }
 
-pub struct ChainController<TEP: ExecutionPlatform + Clone> {
+pub struct ChainController {
     state: Arc<RwLock<ChainControllerState>>,
     stop_handle: Arc<Mutex<Option<ChainThreadStopHandle>>>,
 
     consensus_notifier: Arc<dyn ConsensusNotifier>,
-    block_validator: Option<BlockValidator<TEP>>,
+    block_validator: Option<BlockValidator>,
     block_validation_results: BlockValidationResultStore,
 
     // Request Queue
@@ -259,11 +258,11 @@ pub struct ChainController<TEP: ExecutionPlatform + Clone> {
     chain_head_lock: ChainHeadLock,
 }
 
-impl<TEP: ExecutionPlatform + Clone + 'static> ChainController<TEP> {
+impl ChainController {
     #![allow(clippy::too_many_arguments)]
     pub fn new(
         block_manager: BlockManager,
-        block_validator: BlockValidator<TEP>,
+        block_validator: BlockValidator,
         chain_reader: Box<dyn ChainReader>,
         chain_head_lock: ChainHeadLock,
         block_validation_results: BlockValidationResultStore,
@@ -551,11 +550,11 @@ impl<TEP: ExecutionPlatform + Clone + 'static> ChainController<TEP> {
 
 /// This is used by a non-genesis journal when it has received the
 /// genesis block from the genesis validator
-fn set_genesis<TEP: ExecutionPlatform + Clone + 'static>(
+fn set_genesis(
     state: &mut ChainControllerState,
     chain_head_lock: &ChainHeadLock,
     block: &BlockPair,
-    block_validator: &BlockValidator<TEP>,
+    block_validator: &BlockValidator,
     block_validation_results: &BlockValidationResultStore,
 ) -> Result<(), ChainControllerError> {
     if block.header().previous_block_id() == NULL_BLOCK_IDENTIFIER {
@@ -593,11 +592,7 @@ fn set_genesis<TEP: ExecutionPlatform + Clone + 'static>(
 
             match block_validation_results.get(block.block().header_signature()) {
                 Some(validation_results) => {
-                    let receipts: Vec<TransactionReceipt> = validation_results
-                        .execution_results
-                        .iter()
-                        .map(TransactionReceipt::from)
-                        .collect();
+                    let receipts: Vec<TransactionReceipt> = validation_results.execution_results;
                     for observer in &mut state.observers {
                         observer.chain_update(&block, receipts.as_slice());
                     }
@@ -618,12 +613,12 @@ fn set_genesis<TEP: ExecutionPlatform + Clone + 'static>(
     Ok(())
 }
 
-fn on_block_received<TEP: ExecutionPlatform + Clone + 'static>(
+fn on_block_received(
     block_id: &str,
     state: &mut ChainControllerState,
     consensus_notifier: &Arc<dyn ConsensusNotifier>,
     chain_head_lock: &ChainHeadLock,
-    block_validator: &BlockValidator<TEP>,
+    block_validator: &BlockValidator,
     block_validation_results: &BlockValidationResultStore,
 ) -> Result<(), ChainControllerError> {
     if state.chain_head.is_none() {
@@ -829,11 +824,8 @@ fn handle_block_commit(
             for blk in result.new_chain.iter().rev() {
                 match block_validation_results.get(blk.block().header_signature()) {
                     Some(validation_results) => {
-                        let receipts: Vec<TransactionReceipt> = validation_results
-                            .execution_results
-                            .iter()
-                            .map(TransactionReceipt::from)
-                            .collect();
+                        let receipts: Vec<TransactionReceipt> =
+                            validation_results.execution_results.clone();
                         for observer in &mut state.observers {
                             observer.chain_update(&block, receipts.as_slice());
                         }
@@ -887,13 +879,13 @@ fn handle_block_commit(
     Ok(())
 }
 
-fn on_block_validated<TEP: ExecutionPlatform + Clone + 'static>(
+fn on_block_validated(
     state: &mut ChainControllerState,
     block: &BlockPair,
     result: &BlockValidationResult,
     consensus_notifier: &Arc<dyn ConsensusNotifier>,
     validation_sender: &Sender<ChainControllerRequest>,
-    block_validator: &BlockValidator<TEP>,
+    block_validator: &BlockValidator,
 ) {
     counter!("chain.ChainController.blocks_considered_count", 1);
 
@@ -946,6 +938,7 @@ impl<'a> From<&'a TxnExecutionResult> for TransactionReceipt {
 }
 
 /// Messages handling by the chain controller's thread
+#[derive(Debug)]
 pub enum ChainControllerRequest {
     /// queue a block to be validated
     QueueBlock(String),
@@ -960,7 +953,7 @@ pub enum ChainControllerRequest {
     },
 }
 
-struct ChainThread<TEP: ExecutionPlatform + Clone> {
+struct ChainThread {
     request_receiver: Receiver<ChainControllerRequest>,
     exit: Arc<AtomicBool>,
     state: Arc<RwLock<ChainControllerState>>,
@@ -968,7 +961,7 @@ struct ChainThread<TEP: ExecutionPlatform + Clone> {
     consensus_notifier: Arc<dyn ConsensusNotifier>,
     state_pruning_block_depth: u32,
     block_validation_results: BlockValidationResultStore,
-    block_validator: BlockValidator<TEP>,
+    block_validator: BlockValidator,
     validation_sender: Sender<ChainControllerRequest>,
 }
 
@@ -976,7 +969,7 @@ trait StopHandle: Clone {
     fn stop(&self);
 }
 
-impl<TEP: ExecutionPlatform + Clone + 'static> ChainThread<TEP> {
+impl ChainThread {
     #![allow(clippy::too_many_arguments)]
     fn new(
         request_receiver: Receiver<ChainControllerRequest>,
@@ -986,7 +979,7 @@ impl<TEP: ExecutionPlatform + Clone + 'static> ChainThread<TEP> {
         consensus_notifier: Arc<dyn ConsensusNotifier>,
         state_pruning_block_depth: u32,
         block_validation_results: BlockValidationResultStore,
-        block_validator: BlockValidator<TEP>,
+        block_validator: BlockValidator,
         validation_sender: Sender<ChainControllerRequest>,
     ) -> Self {
         ChainThread {
