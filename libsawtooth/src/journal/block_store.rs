@@ -249,9 +249,10 @@ impl Iterator for InMemoryIter {
 mod test {
     use super::*;
 
+    use cylinder::hash::HashSigner;
+
     use crate::journal::NULL_BLOCK_IDENTIFIER;
     use crate::protocol::block::{BlockBuilder, BlockPair};
-    use crate::signing::hash::HashSigner;
 
     fn create_block(previous_block_id: &str, block_num: u64) -> BlockPair {
         BlockBuilder::new()
@@ -259,7 +260,7 @@ mod test {
             .with_previous_block_id(previous_block_id.into())
             .with_state_root_hash(vec![])
             .with_batches(vec![])
-            .build_pair(&HashSigner::default())
+            .build_pair(&HashSigner)
             .expect("Failed to build block pair")
     }
 

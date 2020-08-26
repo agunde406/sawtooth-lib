@@ -17,6 +17,7 @@
 
 //! Sawtooth block protocol
 
+use cylinder::Signer;
 use protobuf::Message;
 use transact::protocol::batch::Batch;
 
@@ -24,7 +25,6 @@ use crate::protos::{
     block::{Block as BlockProto, BlockHeader as BlockHeaderProto},
     FromBytes, FromNative, FromProto, IntoBytes, IntoNative, IntoProto, ProtoConversionError,
 };
-use crate::signing::Signer;
 
 use super::ProtocolBuildError;
 
@@ -352,10 +352,12 @@ impl BlockBuilder {
             ProtocolBuildError::MissingField("'batches' field is required".to_string())
         })?;
 
+        let signer_public_key = signer.public_key()?.as_slice().to_vec();
+
         let header = BlockHeader {
             block_num,
             previous_block_id,
-            signer_public_key: signer.public_key().into(),
+            signer_public_key,
             batch_ids: batches
                 .iter()
                 .map(|batch| batch.header_signature().to_string())
@@ -387,12 +389,11 @@ impl BlockBuilder {
 mod tests {
     use super::*;
 
+    use cylinder::hash::HashSigner;
     use transact::protocol::{
         batch::BatchBuilder,
         transaction::{HashMethod, TransactionBuilder},
     };
-
-    use crate::signing::hash::HashSigner;
 
     const BLOCK_NUM: u64 = 0;
     const PREVIOUS_BLOCK_ID: &str = "0123";
@@ -406,7 +407,7 @@ mod tests {
     /// 3. Verify that the resulting block pair is correct
     #[test]
     fn builder_chain() {
-        let signer = HashSigner::default();
+        let signer = HashSigner;
 
         let pair = BlockBuilder::new()
             .with_block_num(BLOCK_NUM)
@@ -427,7 +428,7 @@ mod tests {
     /// 3. Verify that the resulting block pair is correct
     #[test]
     fn builder_separate() {
-        let signer = HashSigner::default();
+        let signer = HashSigner;
 
         let mut builder = BlockBuilder::new();
         builder = builder.with_block_num(BLOCK_NUM);
@@ -449,14 +450,12 @@ mod tests {
     /// 2. Verify that a block without a `consensus` value set builds succesfully
     #[test]
     fn builder_defaults() {
-        let signer = HashSigner::default();
-
         BlockBuilder::new()
             .with_block_num(BLOCK_NUM)
             .with_previous_block_id(PREVIOUS_BLOCK_ID.into())
             .with_state_root_hash(STATE_ROOT_HASH.into())
             .with_batches(vec![batch_1(), batch_2()])
-            .build_pair(&signer)
+            .build_pair(&HashSigner)
             .expect("Failed to build block pair");
     }
 
@@ -469,7 +468,7 @@ mod tests {
     /// 5. Attempt to build a block without setting `batches` and verify that it fails.
     #[test]
     fn builder_missing_fields() {
-        let signer = HashSigner::default();
+        let signer = HashSigner;
 
         match BlockBuilder::new()
             .with_previous_block_id(PREVIOUS_BLOCK_ID.into())
@@ -525,9 +524,13 @@ mod tests {
     }
 
     fn check_pair(signer: &dyn Signer, pair: &BlockPair) {
+        let signer_pub_key = signer
+            .public_key()
+            .expect("Failed to get signer public key");
+
         assert_eq!(pair.header().block_num(), BLOCK_NUM);
         assert_eq!(pair.header().previous_block_id(), PREVIOUS_BLOCK_ID);
-        assert_eq!(pair.header().signer_public_key(), signer.public_key());
+        assert_eq!(pair.header().signer_public_key(), signer_pub_key.as_slice());
         assert_eq!(
             pair.header().batch_ids(),
             &[
@@ -549,7 +552,7 @@ mod tests {
     }
 
     fn batch_1() -> Batch {
-        let signer = HashSigner::default();
+        let signer = HashSigner;
 
         let txn = TransactionBuilder::new()
             .with_family_name("test".into())
@@ -569,7 +572,7 @@ mod tests {
     }
 
     fn batch_2() -> Batch {
-        let signer = HashSigner::default();
+        let signer = HashSigner;
 
         let txn = TransactionBuilder::new()
             .with_family_name("test".into())

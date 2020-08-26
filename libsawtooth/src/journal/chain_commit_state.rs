@@ -180,6 +180,7 @@ mod test {
 
     use std::collections::HashMap;
 
+    use cylinder::hash::HashSigner;
     use transact::protocol::{
         batch::BatchBuilder,
         transaction::{HashMethod, Transaction, TransactionBuilder},
@@ -188,7 +189,6 @@ mod test {
     use crate::journal::block_store::InMemoryBlockStore;
     use crate::journal::NULL_BLOCK_IDENTIFIER;
     use crate::protocol::block::{BlockBuilder, BlockPair};
-    use crate::signing::hash::HashSigner;
 
     /// Creates Chains of blocks that match this diagram
     /// chain4                    B4-4  - B5-4
@@ -882,14 +882,14 @@ mod test {
             .with_previous_block_id(previous_block_id.into())
             .with_state_root_hash("".into())
             .with_batches(batches)
-            .build_pair(&HashSigner::default())
+            .build_pair(&HashSigner)
             .expect("Failed to build block pair")
     }
 
     fn create_batch(transactions: Vec<Transaction>) -> Batch {
         BatchBuilder::new()
             .with_transactions(transactions)
-            .build(&HashSigner::default())
+            .build(&HashSigner)
             .expect("Failed to build batch")
     }
 
@@ -909,7 +909,7 @@ mod test {
             .with_payload_hash_method(HashMethod::SHA512)
             .with_payload(vec![])
             .with_nonce(nonce)
-            .build(&HashSigner::default())
+            .build(&HashSigner)
             .expect("Failed to build transaction")
     }
 

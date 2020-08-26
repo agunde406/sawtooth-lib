@@ -768,12 +768,12 @@ impl BlockValidation for OnChainRulesValidation {
 mod test {
     use super::*;
 
+    use cylinder::hash::HashSigner;
     use transact::protocol::batch::Batch;
 
     use crate::journal::block_store::{BlockStore, BlockStoreError};
     use crate::journal::NULL_BLOCK_IDENTIFIER;
     use crate::protocol::block::{BlockBuilder, BlockPair};
-    use crate::signing::hash::HashSigner;
 
     use std::sync::Mutex;
 
@@ -905,7 +905,7 @@ mod test {
             .with_previous_block_id(previous_block_id.into())
             .with_state_root_hash(vec![])
             .with_batches(batches)
-            .build_pair(&HashSigner::default())
+            .build_pair(&HashSigner)
             .expect("Failed to build block pair")
     }
 }

@@ -251,9 +251,10 @@ mod tests {
 
     use std::sync::{Arc, Mutex};
 
+    use cylinder::hash::HashSigner;
+
     use crate::journal::NULL_BLOCK_IDENTIFIER;
     use crate::protocol::block::{BlockBuilder, BlockPair};
-    use crate::signing::hash::HashSigner;
 
     #[test]
     fn test_block_scheduler_simple() {
@@ -459,7 +460,7 @@ mod tests {
             .with_previous_block_id(previous_block_id.into())
             .with_state_root_hash(state_root_hash.unwrap_or_default().into())
             .with_batches(vec![])
-            .build_pair(&HashSigner::default())
+            .build_pair(&HashSigner)
             .expect("Failed to build block pair")
     }
 
