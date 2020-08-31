@@ -429,6 +429,7 @@ impl ChainController {
     }
 
     pub fn commit_block(&self, block: BlockPair) {
+        error!("Commit block!");
         if let Some(sender) = self.request_sender.as_ref() {
             if let Err(err) = sender.send(ChainControllerRequest::CommitBlock(block)) {
                 error!("Unable to add block to block queue: {}", err);
@@ -499,6 +500,7 @@ impl ChainController {
     }
 
     pub fn start(&mut self) {
+        warn!("Starting chain controller");
         // duplicating what happens at the constructor time, but there are multiple
         // points in the lifetime of this object where the value of the
         // block store's chain head may have been set
@@ -579,7 +581,7 @@ fn set_genesis(
                     .chain_id_manager
                     .save_block_chain_id(block.block().header_signature())?;
             }
-
+            error!("Commit genesis block!");
             state
                 .block_manager
                 .persist(block.block().header_signature(), COMMIT_STORE)?;
@@ -787,6 +789,7 @@ fn handle_block_commit(
                 .state_pruning_manager
                 .update_queue(new_roots.as_slice(), current_roots.as_slice());
 
+            error!("Handle Commit block!");
             state
                 .block_manager
                 .persist(block.block().header_signature(), COMMIT_STORE)
@@ -1016,7 +1019,7 @@ impl ChainThread {
                 }
                 Ok(block_id) => block_id,
             };
-
+            warn!("ChainControllerRequest: {:?}", request);
             match request {
                 ChainControllerRequest::QueueBlock(block_id) => {
                     let mut state = self

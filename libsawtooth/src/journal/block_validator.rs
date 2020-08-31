@@ -320,6 +320,7 @@ impl BlockValidator {
     }
 
     pub fn start(&mut self) {
+        error!("Starting Block validtor");
         let receiver = {
             let (_, rx) = &mut self.channel;
             rx.take()
@@ -386,6 +387,7 @@ impl BlockValidator {
     }
 
     pub fn validate_block(&self, block: &BlockPair) -> Result<(), ValidationError> {
+        error!("validate_block direct method");
         let (tx, rx) = channel();
         self.submit_blocks_for_verification(vec![block.clone()], tx);
         match rx.recv() {
@@ -511,11 +513,12 @@ impl BlockValidation for BatchesInBlockValidation {
         let mut scheduler = self
             .scheduler_factory
             .create_scheduler(previous_state_root.to_string())?;
-
+        error!("scheduler created");
         let (result_tx, result_rx): (Sender<SchedulerEvent>, Receiver<SchedulerEvent>) = channel();
         let error_tx = result_tx.clone();
         // Add callback to convert batch result option to scheduler event
         scheduler.set_result_callback(Box::new(move |batch_result| {
+            warn!("BATCH_RESULT: {:?}", batch_result);
             let scheduler_event = match batch_result {
                 Some(result) => SchedulerEvent::Result(result),
                 None => SchedulerEvent::Complete,
@@ -527,6 +530,7 @@ impl BlockValidation for BatchesInBlockValidation {
 
         // add callback to convert error into scheduler event
         scheduler.set_error_callback(Box::new(move |err| {
+            warn!("BATCH ERROr: {:?}", err);
             if error_tx.send(SchedulerEvent::Error(err)).is_err() {
                 error!("Unable to send scheduler error; receiver must have dropped");
             }
@@ -584,6 +588,7 @@ impl BlockValidation for BatchesInBlockValidation {
             }
         }
 
+        error!("scheduler finished");
         let mut results = vec![];
         let mut changes = vec![];
         for batch_result in execution_results {
@@ -642,6 +647,7 @@ impl BlockValidation for BatchesInBlockValidation {
             )));
         }
 
+        error!("returning block validation result");
         Ok(BlockValidationResult {
             block_id: block.block().header_signature().to_string(),
             num_transactions: results.len() as u64,
