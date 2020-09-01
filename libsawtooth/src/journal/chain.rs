@@ -335,6 +335,7 @@ impl ChainController {
                     execution_results: vec![],
                     num_transactions: 0,
                     status: BlockStatus::Valid,
+                    state_changes: vec![],
                 };
                 return Some(result);
             }
@@ -359,6 +360,7 @@ impl ChainController {
                 execution_results: vec![],
                 num_transactions: 0,
                 status: BlockStatus::InValidation,
+                state_changes: vec![],
             });
 
             // Submit for validation
