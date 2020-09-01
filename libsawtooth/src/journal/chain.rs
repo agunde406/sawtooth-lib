@@ -35,6 +35,7 @@ use std::thread;
 use std::time::Duration;
 
 use transact::protocol::batch::Batch;
+use transact::state::{merkle::MerkleState, Write};
 
 use crate::{
     consensus::notifier::ConsensusNotifier,
@@ -150,6 +151,8 @@ struct ChainControllerState {
     observers: Vec<Box<dyn ChainObserver>>,
     state_pruning_manager: StatePruningManager,
     fork_cache: ForkCache,
+    merkle_state: MerkleState,
+    initial_state_hash: String,
 }
 
 impl ChainControllerState {
@@ -272,6 +275,8 @@ impl ChainController {
         observers: Vec<Box<dyn ChainObserver>>,
         state_pruning_manager: StatePruningManager,
         fork_cache_keep_time: Duration,
+        merkle_state: MerkleState,
+        initial_state_hash: String,
     ) -> Self {
         let mut chain_controller = ChainController {
             state: Arc::new(RwLock::new(ChainControllerState {
@@ -283,6 +288,8 @@ impl ChainController {
                 chain_head: None,
                 state_pruning_manager,
                 fork_cache: ForkCache::new(fork_cache_keep_time),
+                merkle_state,
+                initial_state_hash,
             })),
             block_validator: Some(block_validator),
             block_validation_results,
@@ -598,6 +605,10 @@ fn set_genesis(
 
             match block_validation_results.get(block.block().header_signature()) {
                 Some(validation_results) => {
+                    state
+                        .merkle_state
+                        .commit(&state.initial_state_hash, &validation_results.state_changes)
+                        .expect("TODO remove expect");
                     let receipts: Vec<TransactionReceipt> = validation_results.execution_results;
                     for observer in &mut state.observers {
                         observer.chain_update(&block, receipts.as_slice());
@@ -829,10 +840,30 @@ fn handle_block_commit(
             });
 
             for blk in result.new_chain.iter().rev() {
+                let previous_blocks_state_hash = state
+                    .block_manager
+                    .get(&[blk.header().previous_block_id()])
+                    .next()
+                    .unwrap_or(None)
+                    .map(|b| hex::encode(b.header().state_root_hash().to_vec()))
+                    .ok_or_else(|| {
+                        ChainControllerError::ChainUpdateError(format!(
+                            "Unable to find block {}",
+                            blk.header().previous_block_id()
+                        ))
+                    })?;
+
                 match block_validation_results.get(blk.block().header_signature()) {
                     Some(validation_results) => {
+                        state
+                            .merkle_state
+                            .commit(
+                                &previous_blocks_state_hash,
+                                &validation_results.state_changes,
+                            )
+                            .expect("TODO remove expect");
                         let receipts: Vec<TransactionReceipt> =
-                            validation_results.execution_results.clone();
+                            validation_results.execution_results;
                         for observer in &mut state.observers {
                             observer.chain_update(&block, receipts.as_slice());
                         }
