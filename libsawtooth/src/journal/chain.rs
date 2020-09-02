@@ -35,7 +35,7 @@ use std::thread;
 use std::time::Duration;
 
 use transact::protocol::batch::Batch;
-use transact::state::{merkle::MerkleState, Write};
+use transact::state::Write;
 
 use crate::{
     consensus::notifier::ConsensusNotifier,
@@ -53,6 +53,7 @@ use crate::{
     protocol::block::BlockPair,
     protos::transaction_receipt::TransactionReceipt,
     scheduler::TxnExecutionResult,
+    state::merkle::CborMerkleState,
     state::state_pruning_manager::StatePruningManager,
 };
 
@@ -151,7 +152,7 @@ struct ChainControllerState {
     observers: Vec<Box<dyn ChainObserver>>,
     state_pruning_manager: StatePruningManager,
     fork_cache: ForkCache,
-    merkle_state: MerkleState,
+    merkle_state: CborMerkleState,
     initial_state_hash: String,
 }
 
@@ -275,7 +276,7 @@ impl ChainController {
         observers: Vec<Box<dyn ChainObserver>>,
         state_pruning_manager: StatePruningManager,
         fork_cache_keep_time: Duration,
-        merkle_state: MerkleState,
+        merkle_state: CborMerkleState,
         initial_state_hash: String,
     ) -> Self {
         let mut chain_controller = ChainController {

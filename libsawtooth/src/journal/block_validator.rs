@@ -18,7 +18,7 @@
 use transact::execution::executor::Executor;
 use transact::protocol::receipt::TransactionResult;
 use transact::scheduler::{BatchExecutionResult, SchedulerError, SchedulerFactory};
-use transact::state::{merkle::MerkleState, StateChange, Write};
+use transact::state::{StateChange, Write};
 
 use std::convert::TryFrom;
 use std::sync::{
@@ -45,7 +45,7 @@ use crate::{
     protocol::block::BlockPair,
     protos::transaction_receipt::TransactionReceipt,
     state::{
-        identity_view::IdentityView, settings_view::SettingsView,
+        identity_view::IdentityView, merkle::CborMerkleState, settings_view::SettingsView,
         state_view_factory::StateViewFactory,
     },
 };
@@ -196,7 +196,7 @@ pub struct BlockValidator {
     scheduler_factory: Option<Box<dyn SchedulerFactory>>,
     view_factory: StateViewFactory,
     initial_state_hash: String,
-    merkle_state: Option<MerkleState>,
+    merkle_state: Option<CborMerkleState>,
 }
 
 impl BlockValidator {
@@ -208,7 +208,7 @@ impl BlockValidator {
         view_factory: StateViewFactory,
         scheduler_factory: Box<dyn SchedulerFactory>,
         initial_state_hash: String,
-        merkle_state: MerkleState,
+        merkle_state: CborMerkleState,
     ) -> Self {
         let (tx, rx) = channel();
         let channel = (tx, Some(rx));
@@ -236,7 +236,7 @@ impl BlockValidator {
         rcv: Receiver<(BlockPair, Sender<ChainControllerRequest>)>,
         error_return_sender: Sender<(BlockPair, Sender<ChainControllerRequest>)>,
         transaction_executor: Executor,
-        merkle_state: MerkleState,
+        merkle_state: CborMerkleState,
         scheduler_factory: Box<dyn SchedulerFactory>,
     ) {
         let backgroundthread = thread::Builder::new();
@@ -479,14 +479,14 @@ impl<SBV: BlockValidation<ReturnValue = BlockValidationResult>> BlockValidationP
 /// the expected state hash.
 struct BatchesInBlockValidation {
     transaction_executor: Executor,
-    merkle_state: MerkleState,
+    merkle_state: CborMerkleState,
     scheduler_factory: Box<dyn SchedulerFactory>,
 }
 
 impl BatchesInBlockValidation {
     fn new(
         transaction_executor: Executor,
-        merkle_state: MerkleState,
+        merkle_state: CborMerkleState,
         scheduler_factory: Box<dyn SchedulerFactory>,
     ) -> Self {
         BatchesInBlockValidation {
