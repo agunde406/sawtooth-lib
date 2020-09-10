@@ -15,6 +15,7 @@
  * ------------------------------------------------------------------------------
  */
 
+use std::convert::TryFrom;
 use std::error::Error;
 use std::fs::{remove_file, File};
 use std::io::Read;
@@ -22,19 +23,20 @@ use std::path::PathBuf;
 use std::sync::mpsc::{channel, Receiver, Sender};
 
 use cylinder::Signer;
-use transact::execution::executor::Executor;
+use transact::execution::executor::ExecutionTaskSubmitter;
 use transact::protocol::receipt::TransactionResult;
 use transact::scheduler::{BatchExecutionResult, SchedulerError, SchedulerFactory};
 use transact::state::{StateChange, Write};
 
 use crate::journal::block_manager::BlockManager;
+use crate::journal::chain::ChainObserver;
 use crate::protocol::block::BlockBuilder;
 use crate::protocol::genesis::GenesisData;
+use crate::protos::transaction_receipt::TransactionReceipt;
 use crate::protos::FromBytes;
 use crate::state::merkle::CborMerkleState;
 use crate::state::settings_view::SettingsView;
 use crate::state::state_view_factory::StateViewFactory;
-use crate::store::receipt_store::TransactionReceiptStore;
 
 use super::{chain::ChainReader, chain_id_manager::ChainIdManager, NULL_BLOCK_IDENTIFIER};
 
@@ -50,7 +52,7 @@ enum SchedulerEvent {
 /// Builder for creating a `GenesisController`
 #[derive(Default)]
 pub struct GenesisControllerBuilder {
-    transaction_executor: Option<Executor>,
+    transaction_executor: Option<ExecutionTaskSubmitter>,
     scheduler_factory: Option<Box<dyn SchedulerFactory>>,
     block_manager: Option<BlockManager>,
     chain_reader: Option<Box<dyn ChainReader>>,
@@ -58,7 +60,7 @@ pub struct GenesisControllerBuilder {
     identity_signer: Option<Box<dyn Signer>>,
     data_dir: Option<String>,
     chain_id_manager: Option<ChainIdManager>,
-    receipt_store: Option<TransactionReceiptStore>,
+    observers: Option<Vec<Box<dyn ChainObserver>>>,
     initial_state_root: Option<String>,
     merkle_state: Option<CborMerkleState>,
 }
@@ -69,7 +71,10 @@ impl GenesisControllerBuilder {
         GenesisControllerBuilder::default()
     }
 
-    pub fn with_transaction_executor(mut self, executor: Executor) -> GenesisControllerBuilder {
+    pub fn with_transaction_executor(
+        mut self,
+        executor: ExecutionTaskSubmitter,
+    ) -> GenesisControllerBuilder {
         self.transaction_executor = Some(executor);
         self
     }
@@ -116,11 +121,11 @@ impl GenesisControllerBuilder {
         self
     }
 
-    pub fn with_receipt_store(
+    pub fn with_observers(
         mut self,
-        receipt_store: TransactionReceiptStore,
+        observers: Vec<Box<dyn ChainObserver>>,
     ) -> GenesisControllerBuilder {
-        self.receipt_store = Some(receipt_store);
+        self.observers = Some(observers);
         self
     }
 
@@ -189,10 +194,8 @@ impl GenesisControllerBuilder {
             )
         })?;
 
-        let receipt_store = self.receipt_store.ok_or_else(|| {
-            GenesisControllerBuildError::MissingField(
-                "'receipt_store' field is required".to_string(),
-            )
+        let observers = self.observers.ok_or_else(|| {
+            GenesisControllerBuildError::MissingField("'observers' field is required".to_string())
         })?;
 
         let initial_state_root = self.initial_state_root.ok_or_else(|| {
@@ -224,7 +227,7 @@ impl GenesisControllerBuilder {
             state_view_factory,
             identity_signer,
             chain_id_manager,
-            receipt_store,
+            observers,
             genesis_file_path: genesis_path_buf,
             initial_state_root,
             merkle_state,
@@ -235,14 +238,14 @@ impl GenesisControllerBuilder {
 /// The `GenesisController` is in charge of checking if this is the genesis node and creating the
 /// the genesis block from the genesis batch file
 pub struct GenesisController {
-    transaction_executor: Executor,
+    transaction_executor: ExecutionTaskSubmitter,
     scheduler_factory: Box<dyn SchedulerFactory>,
     block_manager: BlockManager,
     chain_reader: Box<dyn ChainReader>,
     state_view_factory: StateViewFactory,
     identity_signer: Box<dyn Signer>,
     chain_id_manager: ChainIdManager,
-    receipt_store: TransactionReceiptStore,
+    observers: Vec<Box<dyn ChainObserver>>,
     initial_state_root: String,
     merkle_state: CborMerkleState,
     genesis_file_path: PathBuf,
@@ -384,7 +387,7 @@ impl GenesisController {
         })?;
 
         self.transaction_executor
-            .execute(
+            .submit(
                 scheduler.take_task_iterator().map_err(|_| {
                     GenesisError::BatchValidationError(
                         "Unable to take task iterator from scheduler".to_string(),
@@ -398,7 +401,7 @@ impl GenesisController {
             )
             .map_err(|err| {
                 GenesisError::BatchValidationError(format!(
-                    "During call to Executor.execute: {}",
+                    "During call to ExecutionTaskSubmitter.submit: {}",
                     err
                 ))
             })?;
@@ -442,7 +445,14 @@ impl GenesisController {
                             changes.append(
                                 &mut state_changes.into_iter().map(StateChange::from).collect(),
                             );
-                            receipts.push(receipt);
+                            let result = TransactionReceipt::try_from(receipt).map_err(|err| {
+                                GenesisError::BatchValidationError(format!(
+                                    "Unable to convert returned Transact receipt into \
+                                    TransactionReceipt: {}",
+                                    err
+                                ))
+                            })?;
+                            receipts.push(result);
                         }
                     };
                 }
@@ -526,6 +536,10 @@ impl GenesisController {
 
         let block_id = block_pair.block().header_signature().to_string();
 
+        for observer in &mut self.observers {
+            observer.chain_update(&block_pair, receipts.as_slice());
+        }
+
         info!("Genesis block created");
         self.block_manager.put(vec![block_pair]).map_err(|err| {
             GenesisError::InvalidGenesisState(format!(
@@ -542,13 +556,6 @@ impl GenesisController {
                     err
                 ))
             })?;
-
-        self.receipt_store.append(receipts).map_err(|err| {
-            GenesisError::InvalidGenesisState(format!(
-                "Unable to append transaction receipts into receipt store: {}",
-                err
-            ))
-        })?;
 
         self.chain_id_manager
             .save_block_chain_id(&block_id)
