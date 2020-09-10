@@ -15,7 +15,7 @@
  * ------------------------------------------------------------------------------
  */
 
-use transact::execution::executor::Executor;
+use transact::execution::executor::ExecutionTaskSubmitter;
 use transact::protocol::receipt::TransactionResult;
 use transact::scheduler::{BatchExecutionResult, SchedulerError, SchedulerFactory};
 use transact::state::{StateChange, Write};
@@ -192,7 +192,7 @@ pub struct BlockValidator {
     block_scheduler: BlockScheduler<BlockValidationResultStore>,
     block_status_store: BlockValidationResultStore,
     block_manager: BlockManager,
-    transaction_executor: Option<Executor>,
+    transaction_executor: Option<ExecutionTaskSubmitter>,
     scheduler_factory: Option<Box<dyn SchedulerFactory>>,
     view_factory: StateViewFactory,
     initial_state_hash: String,
@@ -203,7 +203,7 @@ impl BlockValidator {
     #[allow(clippy::too_many_arguments)]
     pub fn new(
         block_manager: BlockManager,
-        transaction_executor: Executor,
+        transaction_executor: ExecutionTaskSubmitter,
         block_status_store: BlockValidationResultStore,
         view_factory: StateViewFactory,
         scheduler_factory: Box<dyn SchedulerFactory>,
@@ -235,7 +235,7 @@ impl BlockValidator {
         &self,
         rcv: Receiver<(BlockPair, Sender<ChainControllerRequest>)>,
         error_return_sender: Sender<(BlockPair, Sender<ChainControllerRequest>)>,
-        transaction_executor: Executor,
+        transaction_executor: ExecutionTaskSubmitter,
         merkle_state: CborMerkleState,
         scheduler_factory: Box<dyn SchedulerFactory>,
     ) {
@@ -475,7 +475,7 @@ impl<SBV: BlockValidation<ReturnValue = BlockValidationResult>> BlockValidationP
 /// Validate that all the batches are valid and all the transactions produce
 /// the expected state hash.
 struct BatchesInBlockValidation {
-    transaction_executor: Executor,
+    transaction_executor: ExecutionTaskSubmitter,
     merkle_state: CborMerkleState,
     scheduler_factory: Box<dyn SchedulerFactory>,
     initial_state_hash: String,
@@ -483,7 +483,7 @@ struct BatchesInBlockValidation {
 
 impl BatchesInBlockValidation {
     fn new(
-        transaction_executor: Executor,
+        transaction_executor: ExecutionTaskSubmitter,
         merkle_state: CborMerkleState,
         scheduler_factory: Box<dyn SchedulerFactory>,
         initial_state_hash: String,
@@ -566,10 +566,10 @@ impl BlockValidation for BatchesInBlockValidation {
         })?;
 
         self.transaction_executor
-            .execute(scheduler.take_task_iterator()?, scheduler.new_notifier()?)
+            .submit(scheduler.take_task_iterator()?, scheduler.new_notifier()?)
             .map_err(|err| {
                 ValidationError::BlockValidationError(format!(
-                    "During call to Executor.execute: {}",
+                    "During call to ExecutionTaskSubmitter.submit: {}",
                     err
                 ))
             })?;
