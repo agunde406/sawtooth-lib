@@ -16,7 +16,7 @@
  */
 use std::error::Error;
 
-/// Represents errors raised while building
+/// Represents errors raised during genesis block creation
 #[derive(Debug)]
 pub enum GenesisError {
     BatchValidationError(String),
