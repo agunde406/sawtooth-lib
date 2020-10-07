@@ -925,8 +925,6 @@ fn handle_block_commit(
 
             info!("Chain head updated to {}", block.block());
 
-            consensus_notifier.notify_block_commit(block.block().header_signature());
-
             counter!(
                 "chain.ChainController.committed_transactions_count",
                 result.transaction_count as u64
@@ -941,6 +939,8 @@ fn handle_block_commit(
                 result.committed_batches,
                 result.uncommitted_batches,
             );
+
+            consensus_notifier.notify_block_commit(block.block().header_signature());
 
             let chain_head_block_num = block.header().block_num();
             if chain_head_block_num + 1 > u64::from(state_pruning_block_depth) {
